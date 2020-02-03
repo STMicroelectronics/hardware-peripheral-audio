@@ -18,7 +18,7 @@
 
 #define LOG_TAG "tinyhal"
 
-//#define LOG_NDEBUG 0
+// #define LOG_NDEBUG 0
 // #define TEST_32BITS 0
 
 #include <errno.h>
@@ -1556,9 +1556,10 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
   config.format = pcm_format_from_audio_format(in->common.format);
   config.start_threshold = 0;
 
-  ALOGV("do_open_pcm_input: open PCM config: channels = %d, rate = %d, "
-        "period_size = %d, period_count = %d, format = %d", config.channels,
-        config.rate, config.period_size, config.period_count, config.format);
+  ALOGV("do_open_pcm_input: open PCM config (card %d device %d): channels = %d, rate = %d, "
+        "period_size = %d, period_count = %d, format = %d", in->common.hw->card_number,
+        in->common.hw->device_number, config.channels, config.rate, config.period_size,
+        config.period_count, config.format);
 
   if (!adev->disable_audio) {
     in->pcm = pcm_open(in->common.hw->card_number,
@@ -1706,6 +1707,17 @@ static int change_input_source_locked(struct stream_in_pcm *in,
   }
 }
 
+static void do_in_pcm_gain(void* buffer, size_t bytes)
+{
+  uint16_t* buf = (uint16_t*)buffer;
+  uint16_t elem;
+
+  for (int i=0; i<bytes/2; i++) {
+    *buf=*buf << 6;
+    *buf++;
+  }
+}
+
 static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
                               size_t bytes)
 {
@@ -1714,7 +1726,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
   struct audio_device *adev = in->common.dev;
   size_t frames_rq = bytes / in->common.frame_size;
 
-  ALOGV("+do_in_pcm_read %d", bytes);
+  // ALOGV("+do_in_pcm_read %d", bytes);
 
   pthread_mutex_lock(&in->common.lock);
   ret = start_pcm_input_stream(in);
@@ -1728,6 +1740,11 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
       ret = read_resampled_frames(in, buffer, frames_rq);
     } else {
       ret = pcm_read(in->pcm, buffer, bytes);
+    }
+
+    /* add gain on built-in microphone (only for demo purpose) */
+    if ((in->common.frame_size == 2) && (in->common.devices == AUDIO_DEVICE_IN_BUILTIN_MIC)) {
+      do_in_pcm_gain(buffer, bytes);
     }
 
     /* Assume any non-negative return is a successful read */
@@ -1744,7 +1761,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
 exit:
   pthread_mutex_unlock(&in->common.lock);
 
-  ALOGV("-do_in_pcm_read (%d)", ret);
+  // ALOGV("-do_in_pcm_read (%d)", ret);
   return ret;
 }
 
@@ -2338,7 +2355,7 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
   char *str = NULL;
   char value[32];
 
-  ALOGW("adev_set_parameters '%s'", kvpairs);
+  ALOGV("adev_set_parameters '%s'", kvpairs);
 
   parms = str_parms_create_str(kvpairs);
   if (parms) {
@@ -2377,7 +2394,8 @@ static int adev_set_master_volume(struct audio_hw_device *dev, float volume)
 {
   UNUSED(dev);
   UNUSED(volume);
-  return -ENOSYS;
+  // Fake master volume
+  return 0;
 }
 
 static int adev_set_mode(struct audio_hw_device *dev, audio_mode_t mode)
@@ -2421,7 +2439,8 @@ static int adev_set_master_mute(struct audio_hw_device *dev, bool mute)
 {
   UNUSED(dev);
   UNUSED(mute);
-  return -ENOSYS;
+  // Fake master mute (not yet in place)
+  return 0;
 }
 
 static size_t adev_get_input_buffer_size(const struct audio_hw_device *dev,
