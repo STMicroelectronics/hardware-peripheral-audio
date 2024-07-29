@@ -22,6 +22,7 @@
 // #define TEST_32BITS 0
 
 #include <errno.h>
+#include <inttypes.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -524,7 +525,7 @@ static int out_get_presentation_position(const struct audio_stream_out *stream,
 
   pthread_mutex_unlock(&out->common.lock);
 
-  ALOGV("out_get_presentation_position returned %llu frames", *frames);
+  ALOGV("out_get_presentation_position returned %" PRIu64 " frames", *frames);
 
   return ret;
 }
@@ -588,7 +589,7 @@ static int do_init_out_common(struct stream_out_common *out,
 
   /* Default settings */
   out->frame_size = audio_stream_out_frame_size(&out->stream);
-  ALOGV("frame_size initialize to %d", out->frame_size);
+  ALOGV("frame_size initialize to %zu", out->frame_size);
 
   /* Apply initial route */
   apply_route(out->hw, devices);
@@ -660,14 +661,23 @@ static void do_out_pcm_standby(struct stream_out_pcm *out)
 }
 
 static void out_pcm_fill_params(struct stream_out_pcm *out,
-                                const struct pcm_config *config )
+                                const struct pcm_config *config,
+                                bool disable_audio)
 {
   out->hw_sample_rate = config->rate;
   out->hw_channel_count = config->channels;
   out->hw_period_size = config->period_size;
   out->hw_period_count = config->period_count;
 
-  out->common.buffer_size = pcm_frames_to_bytes(out->pcm, config->period_size);
+  if (! disable_audio) {
+    out->common.buffer_size = pcm_frames_to_bytes(out->pcm, config->period_size);
+  } else {
+#ifdef TEST_32BITS
+  out->common.buffer_size = config->period_size * config->channels * (32 >> 3);
+#else
+  out->common.buffer_size = config->period_size * config->channels * (16 >> 3);
+#endif
+  }
   out->common.latency = (config->period_size * config->period_count * 1000);
   out->common.latency /= config->rate;
 }
@@ -720,7 +730,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
   config.format = PCM_FORMAT_S16_LE;
 #endif
 
-  out_pcm_fill_params(out, &config);
+  out_pcm_fill_params(out, &config, adev->disable_audio);
 
   ALOGV("-start_output_pcm(%p)", out);
   return 0;
@@ -751,7 +761,7 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream,
                              const void* buffer,
                              size_t bytes)
 {
-  ALOGV("+out_pcm_write(%p) l=%u", stream, bytes);
+  ALOGV("+out_pcm_write(%p) l=%zu", stream, bytes);
 
   int ret = 0;
   struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
@@ -838,7 +848,7 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream,
       ret = bytes;
       out->hw_frames_written += bytes / out->common.frame_size;
       out->hw_frames_rendered += bytes / out->common.frame_size;
-      ALOGV(" - Write OK (%llu frames)", out->hw_frames_written);
+      ALOGV(" - Write OK (%" PRIu64 " frames)", out->hw_frames_written);
     }
   } else {
     int64_t sleep_time = (int64_t)bytes * 1000000;
@@ -948,7 +958,7 @@ static audio_format_t in_get_format(const struct audio_stream *stream)
 static size_t in_get_buffer_size(const struct audio_stream *stream)
 {
   const struct stream_in_common *in = (struct stream_in_common *)stream;
-  ALOGV("in_get_buffer_size(%p): %u", stream, in->buffer_size);
+  ALOGV("in_get_buffer_size(%p): %zu", stream, in->buffer_size);
   return in->buffer_size;
 }
 
@@ -1411,7 +1421,7 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream,
   struct audio_device *adev = in->common.dev;
   int ret = 0;
 
-  ALOGV("+do_in_compress_pcm_read %d", bytes);
+  ALOGV("+do_in_compress_pcm_read %zu", bytes);
 
   pthread_mutex_lock(&in->common.lock);
   ret = start_compress_pcm_input_stream(in);
@@ -1576,7 +1586,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
   in_pcm_fill_params(in, &config);
 
-  ALOGV("input buffer size=0x%x", in->common.buffer_size);
+  ALOGV("input buffer size=0x%zx", in->common.buffer_size);
 
   /*
    * If the stream rate differs from the PCM rate, we need to
@@ -2485,6 +2495,44 @@ static int adev_get_microphones(const struct audio_hw_device *dev,
     return 0; //Stub
 }
 
+static int adev_get_audio_port(struct audio_hw_device *dev, struct audio_port *port)
+{
+  struct audio_device *adev = (struct audio_device *)dev;
+
+  if (dev == NULL || port == NULL) {
+    return -EINVAL;
+  }
+
+  if (port->type != AUDIO_PORT_TYPE_DEVICE) {
+    return -EINVAL;
+  }
+
+  if (adev->disable_audio) {
+    const bool is_output = audio_is_output_device(port->ext.device.type);
+    if (is_output) {
+      port->num_formats = 1;
+      port->formats[0] = AUDIO_FORMAT_PCM_16_BIT;
+      port->num_sample_rates=1;
+      port->sample_rates[0] = 48000;
+      port->num_channel_masks=1;
+      port->channel_masks[0]=AUDIO_CHANNEL_OUT_STEREO;
+    } else {
+      port->num_formats = 1;
+      port->formats[0] = AUDIO_FORMAT_PCM_16_BIT;
+      port->num_sample_rates=3;
+      port->sample_rates[0] = 8000;
+      port->sample_rates[1] = 16000;
+      port->sample_rates[2] = 32000;
+      port->num_channel_masks=1;
+      port->channel_masks[0]=AUDIO_CHANNEL_IN_MONO;
+    }
+    return 0;
+  }
+  // TODO : implement case with audio device
+
+  return -ENOSYS;
+}
+
 static int adev_open(const hw_module_t *module, const char *name,
                      hw_device_t **device)
 {
@@ -2525,7 +2573,7 @@ static int adev_open(const hw_module_t *module, const char *name,
   adev->hw_device.get_master_mute = NULL;
   adev->hw_device.create_audio_patch = NULL;
   adev->hw_device.release_audio_patch = NULL;
-  adev->hw_device.get_audio_port = NULL;
+  adev->hw_device.get_audio_port = adev_get_audio_port;
   adev->hw_device.set_audio_port_config = NULL;
 
   adev->cm = init_audio_config();

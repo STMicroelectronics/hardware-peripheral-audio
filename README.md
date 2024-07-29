@@ -1,13 +1,12 @@
 # hardware-audio #
 
 This module contains the STMicroelectronics Audio HAL source code.
-It is part of the STMicroelectronics delivery for Android (see the [delivery][] for more information).
 
-[delivery]: https://wiki.st.com/stm32mpu/wiki/STM32MP15_distribution_for_Android_release_note_-_v2.0.0
+It is part of the STMicroelectronics delivery for Android.
 
 ## Description ##
 
-This module version is the updated version for STM32MP15 distribution for Android V2.0
+This module version is the updated version for STM32MPU distribution for Android
 Please see the Android delivery release notes for more details.
 
 It generates the library "audio.primary.stm" used to implement vendor-specific functionalities for the Android default Audio service.
@@ -21,10 +20,7 @@ Please see the release notes for more details.
 ## Documentation ##
 
 * The [release notes][] provide information on the release.
-* The [distribution package][] provides detailed information on how to use this delivery.
-
-[release notes]: https://wiki.st.com/stm32mpu/wiki/STM32MP15_distribution_for_Android_release_note_-_v2.0.0
-[distribution package]: https://wiki.st.com/stm32mpu/wiki/STM32MP1_Distribution_Package_for_Android
+[release notes]: https://wiki.st.com/stm32mpu/wiki/STM32_MPU_OpenSTDroid_release_note_-_v5.1.0
 
 ## Dependencies ##
 
